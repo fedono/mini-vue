@@ -1,9 +1,12 @@
 import { ShapeFlags } from '../shared/shapeFlags';
-import { Text, Fragment, normalizeVNode } from './vnode';
+import { invokeArrayFns, isArray } from '../shared/index';
+import { Text, Fragment, normalizeVNode, isSameVNodeType } from './vnode';
 import { shouldUpdateComponent } from './componentRenderUtils';
 import { createComponentInstance, setupComponent } from './component';
 import { effect } from '../reactivity/effect';
-import { queueJob } from './scheduler';
+import { queueJob, queuePostFlushCb } from './scheduler';
+
+export const queuePostRenderEffect = queuePostFlushCb;
 
 export function createRenderer(options) {
   const {
@@ -13,15 +16,55 @@ export function createRenderer(options) {
     insert: hostInsert,
     remove: hostRemove,
     setText: hostSetText,
-    createText: hostCreateText
+    createText: hostCreateText,
+    nextSibling: hostNextSibling
   } = options;
 
   const render = (vnode, container) => {
     patch(null, vnode, container);
   };
 
-  function patch(n1, n2, container = null, anchor = null, parentComponent = null) {
+  const unmountComponent = (instance, parentSuspense, doRemove) => {
+    const { scope, bum, um } = instance;
+    if (bum) {
+      invokeArrayFns(bum);
+    }
+
+    // stop effects in component scope
+    scope.stop();
+
+    if (um) {
+      queuePostRenderEffect(um, parentSuspense);
+    }
+
+    queuePostRenderEffect(() => {
+      instance.isUnmounted = true;
+    }, parentSuspense);
+  };
+
+  const getNextHostNode = (vnode) => {
+    if (vnode.shapeFlag & ShapeFlags.COMPONENT) {
+      return getNextHostNode(vnode.component.subTree);
+    }
+    return hostNextSibling(vnode.anchor || vnode.el);
+  };
+
+  function patch(
+    n1,
+    n2,
+    container = null,
+    anchor = null,
+    parentComponent = null,
+    parentSuspense = null
+  ) {
     const { type, shapeFlag } = n2;
+
+    // not same type, unmount old tree
+    if (n1 && !isSameVNodeType(n1, n2)) {
+      anchor = getNextHostNode(n1);
+      unmount(n1, parentComponent, parentSuspense, true);
+    }
+
     switch (type) {
       case Text:
         processText(n1, n2, container);
@@ -150,6 +193,14 @@ export function createRenderer(options) {
     };
   }
 
+  const unmount = (vnode, parentComponent, parentSuspense, doRemove = false, optimized = false) => {
+    const { shapeFlag } = vnode;
+
+    if (shapeFlag & ShapeFlags.COMPONENT) {
+      unmountComponent(vnode.component, parentSuspense, doRemove);
+    }
+  };
+
   function patchProps(el, oldProps, newProps) {
     for (const key in newProps) {
       const prevProp = oldProps[key];
@@ -181,9 +232,15 @@ export function createRenderer(options) {
     setupRenderEffect(instance, initialVNode, container);
   }
 
-  function setupRenderEffect(instance, initialVNode, container) {
+  function setupRenderEffect(instance, initialVNode, container, anchor, parentSuspense) {
     function componentUpdateFn() {
       if (!instance.isMounted) {
+        const { bm, m } = instance;
+
+        if (bm) {
+          invokeArrayFns(bm);
+        }
+
         const proxyToUse = instance.proxy;
         const subTree = (instance.subTree = normalizeVNode(
           instance.render.call(proxyToUse, proxyToUse)
@@ -191,12 +248,22 @@ export function createRenderer(options) {
 
         patch(null, subTree, container, null, instance);
         initialVNode.el = subTree.el;
+
+        if (m) {
+          // 会在 patch 之后执行 mounted 周期函数
+          queuePostRenderEffect(m, parentSuspense);
+        }
+
         instance.isMounted = true;
       } else {
-        const { next, vnode } = instance;
+        const { next, vnode, bu, u } = instance;
         if (next) {
           next.el = vnode.el;
           updateComponentPreRender(instance, next);
+        }
+
+        if (bu) {
+          invokeArrayFns(bu);
         }
 
         const proxyToUse = instance.proxy;
@@ -206,6 +273,10 @@ export function createRenderer(options) {
         instance.subTree = nextTree;
 
         patch(prevTree, nextTree, prevTree.el, null, instance);
+
+        if (u) {
+          queuePostRenderEffect(u, parentSuspense);
+        }
       }
     }
 

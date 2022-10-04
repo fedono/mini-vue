@@ -3,6 +3,23 @@ import { initProps } from './componentProps';
 import { initSlots } from 'componentSlots';
 import { PublicInstanceProxyHandlers } from './PublicInstanceProxyHandlers';
 import { proxyRefs } from '../reactivity/ref';
+import { shallowReadonly } from '../reactivity/reactive';
+
+export const LifecycleHooks = {
+  BEFORE_CREATE: 'bc',
+  CREATED: 'c',
+  BEFORE_MOUNT: 'bm',
+  MOUNTED: 'm',
+  BEFORE_UPDATE: 'bu',
+  UPDATED: 'u',
+  BEFORE_UNMOUNT: 'bum',
+  UNMOUNTED: 'da',
+  ACTIVATED: 'a',
+  RENDER_TRIGGERED: 'rtg',
+  RENDER_TRACKED: 'rtc',
+  ERROR_CAPTURED: 'ec',
+  SERVER_PREFETCH: 'sp'
+};
 
 export function createComponentInstance(vnode, parent) {
   const instance = {
@@ -92,13 +109,18 @@ function createSetupContext(instance) {
   };
 }
 
-let currentInstance = {};
+export let currentInstance = null;
 export function getCurrentInstance() {
   return currentInstance;
 }
 export function setCurrentInstance(instance) {
   currentInstance = instance;
 }
+
+export const unsetCurrentInstance = () => {
+  currentInstance && currentInstance.scope.off();
+  currentInstance = null;
+};
 
 let compile;
 export function registerRuntimeCompiler(_compile) {

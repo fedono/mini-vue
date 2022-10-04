@@ -1,5 +1,6 @@
 export * from './shapeFlags';
 
+export const isArray = Array.isArray;
 export const isObject = (val) => {
   return val !== null && typeof val === 'object';
 };
@@ -18,3 +19,9 @@ export const toHandlerKey = (str) => (str ? `on${capitalize(str)}` : '');
 export function hasOwn(val, key) {
   return Object.prototype.hasOwnProperty.call(val, key);
 }
+
+export const invokeArrayFns = (fns, arg) => {
+  for (let i = 0; i < fns.length; i++) {
+    fns[i](arg);
+  }
+};

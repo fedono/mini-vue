@@ -58,6 +58,17 @@ export function effect(fn, options = {}) {
   return runner;
 }
 
+const trackStack = [];
+export function pauseTracking() {
+  trackStack.push(shouldTrack);
+  shouldTrack = false;
+}
+
+export function resetTracking() {
+  const last = trackStack.pop();
+  shouldTrack = last === undefined ? true : false;
+}
+
 export function track(target, type, key) {
   if (!isTracking()) {
     return;
